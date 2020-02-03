@@ -1,0 +1,77 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Parameters:
+  pRemoteRegion:
+    Type: String
+    Description: Remote region to initiate EBS Backup Report
+    Default: us-east-1
+  pTagKey:
+    Type: String
+    Description: Tag key used to determine if snapshot should be backed up
+  pTagValue:
+    Type: String
+    Description: Tag value used to determine if snapshot should be backed up
+  pRoleArn:
+    Type: String
+    Description: Lambda role used to initiate snapshots
+  pEmailSubscriber:
+    Type: String
+    Description: Email that will subscribe to daily EBS Report
+
+  pLambdaRate:
+    Description: >
+      The rate (frequency) that determines when CloudWatch Events runs the rule that
+      triggers the Lambda function.
+    Default: rate(1 day)
+    AllowedValues:
+      - rate(1 minute)
+      - rate(1 hour)
+      - rate(1 day)
+    Type: String
+
+Resources:
+  rSNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      Subscription:
+      - Endpoint: !Ref pEmailSubscriber
+        Protocol: email
+
+  rLambdaSchedule:
+    Type: "AWS::Events::Rule"
+    Properties:
+      Description: >
+        A schedule for the Lambda function..
+      ScheduleExpression: !Ref pLambdaRate
+      State: ENABLED
+      Targets:
+        - Arn: !GetAtt rEBSReportLambda.Arn
+          Id: rLambdaSchedule
+
+  rLambdaSchedulePermission:
+    Type: "AWS::Lambda::Permission"
+    Properties:
+      Action: 'lambda:InvokeFunction'
+      FunctionName: !GetAtt rEBSReportLambda.Arn
+      Principal: 'events.amazonaws.com'
+      SourceArn: !GetAtt rLambdaSchedule.Arn
+
+  rEBSReportLambda:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: <insert file path to ebs-report-lambda.py here>
+      Timeout: 300
+      MemorySize : 128
+      Description: Send EBS Report
+      FunctionName: ebs-report
+      Handler: ebs-report-lambda.lambda_handler
+      Role: !Ref pRoleArn
+      Runtime: python3.7
+      Environment:
+        Variables:
+          TAG_KEY: !Ref pTagKey
+          TAG_VALUE: !Ref pTagValue
+          REMOTE_REGION: !Ref pRemoteRegion
+          SNS_TARGETARN: !Ref rSNSTopic
+
+
